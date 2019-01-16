@@ -14,7 +14,7 @@
       <div class="col-lg-6">
       </div>
       <div class="col-lg-12 credits">
-        Github Rocks 1
+        Github Rocks
       </div>
       <div class="col-lg-6">
       </div>
