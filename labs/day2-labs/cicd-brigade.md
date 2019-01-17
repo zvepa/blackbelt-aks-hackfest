@@ -26,6 +26,8 @@ This lab has pre-requisites. Some have been completed in prior labs.
 
 ## Install Brigade
 
+![#f03c15](https://placehold.it/15/f03c15/000000?text=+) **Perform below steps in the Jumpbox**
+
 1. Update helm repo
 
     ```
@@ -35,9 +37,10 @@ This lab has pre-requisites. Some have been completed in prior labs.
 2. Install brigade chart
 
     ```
-    helm install -n brigade brigade/brigade
+    helm install -n brigade brigade/brigade --set rbac.Enabled=true
 
     # Note that if you are using kubernetes pre-1.8, you will need to run:
+    
     helm install -n brigade brigade/brigade --set vacuum.enabled=false
 
     # you should see 3 new pods
@@ -58,7 +61,7 @@ This lab has pre-requisites. Some have been completed in prior labs.
 
 ## Setup Brigade Project
 
-1. Create a brigade project YAML file
+1. Create a brigade project YAML file in the CentOS VM 
 
     * Create a file called ```brig-proj-heroes.yaml```
     * Add the contents below to start your file
@@ -75,7 +78,7 @@ This lab has pre-requisites. Some have been completed in prior labs.
           acrServer: REPLACE
           acrUsername: REPLACE
           acrPassword: "REPLACE"
-        vcsSidecar: "deis/git-sidecar:v0.11.0"
+        vcsSidecar: "deis/git-sidecar:v0.15.0"
         ```
 
     * Edit the values from above to match your Github account (example below)
@@ -84,11 +87,11 @@ This lab has pre-requisites. Some have been completed in prior labs.
         * cloneURL: https://github.com/thedude-lebowski/blackbelt-aks-hackfest.git
 
     * Create a Github token and update the ```brig-proj-heroes.yaml```
-        * In your Github, click on `Settings` and `Developer settings`
+        * In your Github, click on `Settings` option under your Profile Menu and click on `Developer settings`
         * Select `Personal sccess tokens`
         * Select `Generate new token`
             ![Github token](img/github-token.png "Github token")
-        * Provide a description and give access to the `repo`
+        * Provide a description and give access to the `repo` and then select Generate Token. Make a note of the token
             ![Github token access](img/github-token-access.png "Github token access")
 
         > Note: More details on Brigade and Github integration are here: https://github.com/Azure/brigade/blob/master/docs/topics/github.md 
@@ -98,12 +101,12 @@ This lab has pre-requisites. Some have been completed in prior labs.
         * acrUsername
         * acrPassword
 
-    * After the above steps, your file will look like the below (values are not valid for realz)
+    * After the above steps, your file will look like the below. **sharedSecret** can be any super secret value (values are not valid for real). Once you are done with all the changes save the file.
 
         ```yaml
         project: "thedude-lebowski/blackbelt-aks-hackfest"
         repository: "github.com/thedude-lebowski/blackbelt-aks-hackfest"
-        cloneURL: "https://github.com/thedude-lebowski/blackbelt-aks-hackfest"
+        cloneURL: "https://github.com/thedude-lebowski/blackbelt-aks-hackfest.git"
         sharedSecret: "create-something-super-secret"
         # MAKE SURE YOU CHANGE THIS. It's basically a password
         github:
@@ -112,7 +115,7 @@ This lab has pre-requisites. Some have been completed in prior labs.
           acrServer: youracr.azurecr.io
           acrUsername: youracr
           acrPassword: "lGsP/UA1Gnbogus9Ps5fAL6CeWsGfPCg"
-        vcsSidecar: "deis/git-sidecar:v0.11.0"
+        vcsSidecar: "deis/git-sidecar:v0.15.0"
         ```
 
 2. Create your brigade project
@@ -120,10 +123,18 @@ This lab has pre-requisites. Some have been completed in prior labs.
     ```
     # from the directory where your file from step #1 was created
 
-    helm install --name brig-proj-heroes brigade/brigade-project -f brig-proj-heroes.yaml
+    helm install --name brig-proj-heroes brigade/brigade-project -f brig-proj-heroes.yaml --set rbac.enabled=true
     ``` 
 
     > Note: There is a ```brig``` CLI client that allows you to view your brigade projects. More details here: <https://github.com/Azure/brigade/tree/master/brig>
+    
+ 3. Create Cluster role binding for brigade worker, api and github-gw service accounts to provide it with enough permissions in the default namespace
+ 
+    ```bash
+    kubectl create clusterrolebinding brigade-worker --clusterrole=cluster-admin --serviceaccount=default:brigade-worker
+    kubectl create clusterrolebinding brigade-brigade-api --clusterrole=cluster-admin --serviceaccount=default:brigade-brigade-api
+    kubectl create clusterrolebinding brigade-brigade-github-gw --clusterrole=cluster-admin --serviceaccount=default:brigade-brigade-github-gw
+    ```
 
 ## Setup Brigade Pipeline
 
@@ -150,7 +161,7 @@ In our earlier labs, we had to create a Dockerfile for the web app. Since you fo
 * In the `~/blackbelt-aks-hackfest/app/web` directory, in Github, add a file called "Dockerfile"
 * Add the following lines and save (this will be used by Brigade later)
 
-    ```
+    ```docker
     FROM node:9.4.0-alpine
 
     ARG VCS_REF
@@ -177,7 +188,7 @@ In our earlier labs, we had to create a Dockerfile for the web app. Since you fo
 1. Get a URL for your Brigade Gateway
 
     ```
-    kubectl get service brigade-brigade-gw
+    kubectl get service brigade-brigade-github-gw
 
     NAME                 TYPE           CLUSTER-IP    EXTERNAL-IP     PORT(S)          AGE
     brigade-brigade-gw   LoadBalancer   10.0.45.233   13.67.129.228   7744:30176/TCP   4h
@@ -186,12 +197,15 @@ In our earlier labs, we had to create a Dockerfile for the web app. Since you fo
     Use the IP address above to note a URL such as: http://13.67.129.228:7744/events/github You will use this in the next step
 
 2. In your forked Github repo, click on Settings
+
+   ![Github webhook](img/github-settings.png "Github webhook")
+
 3. Click Webhooks
 4. Click `Add webhook`
 5. Set the `Payload URL` to the URL created in step 1
 6. Set the `Content type` to `application/json`
 7. Set the `Secret` to the value from your `brig-proj-heroes.yaml` called "sharedSecret"
-8. Set the `Which events...` to `Let me select individual events` and check `Push` and `Pull request`
+8. Set the `Which events...` to `Let me select individual events` and check `Pushes` and `Pull requests`
 
     ![Github webhook](img/github-webhook.png "Github webhook")
 
@@ -200,7 +214,7 @@ In our earlier labs, we had to create a Dockerfile for the web app. Since you fo
 ## Test the CI/CD Pipeline
 
 1. Update the web application. Directly in your forked Github repo, edit the `Footer.vue` file. Stored in: `blackbelt-aks-hackfest/app/web/src/components/`
-2. Find the snippet below *(line 13)* and change the text _"Azure Global Blackbelt Team"_ to your name or whatever you would like to display.
+2. Find the snippet below *(line 17)* and change the text _"Azure Global Blackbelt Team"_ to your name or whatever you would like to display.
 
     ```
     <div class="row at-row flex-center flex-middle">
@@ -215,8 +229,21 @@ In our earlier labs, we had to create a Dockerfile for the web app. Since you fo
     ```
 
 3. Click `Commit changes` in Github. Provide a commit message if you would like.
-4. List the pods in the cluster (`kubectl get pods`). You should see Brigade worker and jobs running. 
-5. If this completes successfully, you will see your updated web app.
+    
+4. List the pods in the cluster (`kubectl get pods`). You should see **Brigade worker pods (brigade-worker-xxxxxx)** and  **jobs pods (job-runner-docker-xxxxxx and job-runner-k8s-xxxxxxxxx)** running.
+   The brigade-worker pod loads the brigade.js file and performs the tasks listed in the java script file. It creates the job-runner-docker pod and job-runner-k8s pod based on definitions available in the brigade.js file. 
+   
+   The **job-runner-docker** pod builds the new rating-web image and pushes it to ACR. 
+   You should see a new image created in ACR in the rating-web repository with tag **master-xxxxx** as seen below
+
+    ![ACR Images](img/ACR-BrigadeImage.JPG "ACR Images")
+   
+   Since a new version of the image is available in ACR the kubernetes deployment for **heroes-web** needs to be updated.
+   
+   The **job-runner-k8s** pod updates the image tag for the deployment **heroes-web-deploy**. The deployment will recreate the **heroes-web pod** with the new image
+
+    
+6. If this completes successfully, you will see your updated web app.
 
 
 
